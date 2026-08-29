@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="一个简洁、现代的本地每日待办清单" />
+    <title>每日待办</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="todo-app">
+      <header class="app-header">
+        <p class="eyebrow">保持专注，从容完成</p>
+        <h1>我的待办</h1>
+        <p class="subtitle">记录每天的事项，也提前安排未来计划。</p>
+      </header>
+
+      <section class="todo-card" aria-label="每日待办清单">
+        <nav class="date-navigator" aria-label="选择待办日期">
+          <button id="previous-day" class="date-step" type="button" aria-label="前一天">‹</button>
+          <button id="calendar-toggle" class="date-picker" type="button" aria-expanded="false" aria-controls="calendar-panel">
+            <span id="selected-date-label">今天</span>
+            <span aria-hidden="true">▾</span>
+          </button>
+          <button id="next-day" class="date-step" type="button" aria-label="后一天">›</button>
+          <button id="today-button" class="today-button" type="button">回到今天</button>
+        </nav>
+
+        <section id="calendar-panel" class="calendar-panel" aria-label="日历" hidden>
+          <header class="calendar-header">
+            <button id="previous-month" type="button" aria-label="上个月">‹</button>
+            <h2 id="calendar-month"></h2>
+            <button id="next-month" type="button" aria-label="下个月">›</button>
+          </header>
+          <div class="calendar-weekdays" aria-hidden="true">
+            <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+          </div>
+          <div id="calendar-grid" class="calendar-grid" role="grid" aria-labelledby="calendar-month"></div>
+        </section>
+
+        <form id="todo-form" class="todo-form">
+          <label class="sr-only" for="todo-input">输入待办事项</label>
+          <input id="todo-input" type="text" placeholder="添加一项新任务…" maxlength="100" autocomplete="off" />
+          <button type="submit">添加</button>
+        </form>
+
+        <div class="list-header">
+          <div>
+            <h2 id="list-title">今天的任务</h2>
+            <p id="full-date" class="full-date"></p>
+          </div>
+          <span id="todo-count">0 项待完成</span>
+        </div>
+
+        <div class="todo-toolbar">
+          <div class="filter-buttons" role="group" aria-label="筛选待办事项">
+            <button class="filter-button active" type="button" data-filter="all" aria-pressed="true">全部</button>
+            <button class="filter-button" type="button" data-filter="active" aria-pressed="false">未完成</button>
+            <button class="filter-button" type="button" data-filter="completed" aria-pressed="false">已完成</button>
+          </div>
+        </div>
+
+        <ul id="todo-list" class="todo-list" aria-live="polite"></ul>
+        <div id="empty-state" class="empty-state">
+          <span aria-hidden="true">✓</span>
+          <p id="empty-title">这一天还没有待办</p>
+          <small id="empty-hint">添加一项任务，开始行动吧</small>
+        </div>
+        <div class="list-footer">
+          <button id="clear-completed" class="clear-button" type="button">清除当天已完成</button>
+        </div>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
