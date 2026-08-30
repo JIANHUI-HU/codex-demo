@@ -36,14 +36,52 @@ const sortHand = (player) => game.hands[player].sort((a, b) => tileCode(a) - til
 
 function startGame() {
   clearTimeout(timer);
+  document.querySelector(".deal-layer")?.remove();
   const wall = makeWall();
   const hands = [[], [], [], []];
   for (let round = 0; round < 13; round += 1) for (let player = 0; player < 4; player += 1) hands[player].push(wall.pop());
-  game = { wall, hands, melds: [[], [], [], []], river: [], turn: 0, phase: "turn", selected: null, last: null, over: false, drawnId: null };
+  game = { wall, hands, melds: [[], [], [], []], river: [], turn: 0, phase: "dealing", selected: null, last: null, over: false, drawnId: null, dealing: true };
   hands.forEach((_, player) => sortHand(player));
   try { $("#result-dialog").close(); } catch {}
   render();
-  timer = setTimeout(beginTurn, 450);
+  playDealAnimation();
+}
+
+function playDealAnimation() {
+  const currentGame = game;
+  const felt = document.querySelector(".felt");
+  const layer = document.createElement("div");
+  layer.className = "deal-layer";
+  layer.innerHTML = `<div class="deal-stack"><i></i><i></i><i></i></div><div class="deal-caption">正在发牌</div>`;
+  felt.append(layer);
+  const width = felt.clientWidth;
+  const height = felt.clientHeight;
+  const destinations = [
+    { x: 0, y: height * 0.36, rotation: 0 },
+    { x: -width * 0.39, y: 0, rotation: 90 },
+    { x: 0, y: -height * 0.35, rotation: 180 },
+    { x: width * 0.39, y: 0, rotation: -90 },
+  ];
+  for (let index = 0; index < 52; index += 1) {
+    const player = index % 4;
+    const destination = destinations[player];
+    const card = document.createElement("i");
+    card.className = "deal-card";
+    card.style.setProperty("--deal-x", `${destination.x}px`);
+    card.style.setProperty("--deal-y", `${destination.y}px`);
+    card.style.setProperty("--deal-r", `${destination.rotation}deg`);
+    card.style.setProperty("--deal-delay", `${index * 38}ms`);
+    layer.append(card);
+  }
+  timer = setTimeout(() => {
+    if (game !== currentGame) return;
+    layer.classList.add("finishing");
+    game.dealing = false;
+    game.phase = "turn";
+    render();
+    setTimeout(() => layer.remove(), 260);
+    timer = setTimeout(beginTurn, 320);
+  }, 52 * 38 + 380);
 }
 
 function countsOf(hand) {
@@ -160,6 +198,7 @@ function renderMelds() {
 }
 
 function render() {
+  document.querySelector(".game").classList.toggle("dealing", game.dealing);
   handElement.replaceChildren();
   game.hands[0].forEach((tile) => {
     const button = createTile(tile);
@@ -177,10 +216,10 @@ function render() {
   });
   renderMelds();
   for (let player = 1; player < 4; player += 1) {
-    const element = $(`#player-${player}`); element.classList.toggle("active", game.turn === player && !game.over); element.querySelector("span").textContent = `${game.hands[player].length} 张`;
+    const element = $(`#player-${player}`); element.classList.toggle("active", game.turn === player && !game.over && !game.dealing); element.querySelector("span").textContent = game.dealing ? "发牌中" : `${game.hands[player].length} 张`;
   }
   $("#wall-count").textContent = game.wall.length;
-  $("#hand-status").textContent = `${game.hands[0].length} 张`;
+  $("#hand-status").textContent = game.dealing ? "发牌中" : `${game.hands[0].length} 张`;
   discardButton.disabled = game.over || game.turn !== 0 || game.phase !== "discard" || !game.selected;
   huButton.disabled = game.over || game.turn !== 0 || game.phase !== "discard" || !patternsFor(0).length;
   gangButton.disabled = game.over || game.turn !== 0 || game.phase !== "discard" || findConcealedGang(0) < 0;
@@ -189,7 +228,7 @@ function render() {
     const claims = claimsFor(0, game.last.tile);
     $("#peng-btn").disabled = !claims.peng; $("#ming-gang-btn").disabled = !claims.gang; $("#dian-hu-btn").disabled = !claims.hu;
   }
-  $("#turn-label").textContent = game.over ? "本局结束" : game.phase === "claim" ? `${names[game.turn]}可以响应` : game.turn ? `${names[game.turn]}正在思考…` : game.phase === "discard" ? "请选择一张打出" : "正在自动摸牌…";
+  $("#turn-label").textContent = game.dealing ? "正在发牌…" : game.over ? "本局结束" : game.phase === "claim" ? `${names[game.turn]}可以响应` : game.turn ? `${names[game.turn]}正在思考…` : game.phase === "discard" ? "请选择一张打出" : "正在自动摸牌…";
 }
 
 function drawTile(player) {
