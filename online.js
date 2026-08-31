@@ -84,11 +84,19 @@ function renderWaitingRoom() {
   roomState.players.forEach((player, index) => {
     const item = document.createElement("li"); item.dataset.seat = index === 0 ? "我" : index === 1 ? "左" : index === 2 ? "对" : "右";
     if (!player) { item.className = "empty"; item.textContent = "等待加入"; }
-    else { item.classList.toggle("offline", !player.connected); item.innerHTML = `<span>${escapeHtml(player.name)}${index === 0 ? "（你）" : ""}</span>${player.owner ? "<em>房主</em>" : ""}`; }
+    else {
+      item.classList.toggle("offline", !player.connected);
+      item.classList.toggle("bot", player.bot);
+      item.innerHTML = `<span>${escapeHtml(player.name)}${index === 0 ? "（你）" : ""}</span>${player.bot ? "<em>电脑</em>" : ""}${player.owner ? "<em>房主</em>" : ""}`;
+    }
     list.append(item);
   });
   const ready = roomState.connectedCount === 4;
-  $("#waiting-hint").textContent = ready ? "四位玩家已到齐" : `已加入 ${roomState.connectedCount}/4，等待牌友加入…`;
+  const humanCount = roomState.players.filter((player) => player && !player.bot).length;
+  $("#waiting-hint").textContent = ready ? `座位已满 · 真人 ${humanCount} 位，电脑 ${roomState.botCount} 位` : `已有 ${humanCount} 位真人、${roomState.botCount} 位电脑，等待补满四席…`;
+  const botControls = $("#bot-controls"); botControls.hidden = !roomState.isOwner;
+  $("#add-bot").disabled = !roomState.players.some((player) => !player);
+  $("#remove-bot").disabled = !roomState.botCount;
   const startButton = $("#start-online-game"); startButton.hidden = !roomState.isOwner; startButton.disabled = !ready; startButton.textContent = ready ? "开始牌局" : "四人到齐后开始";
 }
 
@@ -223,6 +231,8 @@ document.querySelectorAll(".online-base-buttons button").forEach((button) => { b
 $("#create-room").onclick = () => { const name = $("#nickname").value.trim(); if (!name) return showToast("请先输入称呼"); localStorage.setItem(nameKey, name); localStorage.removeItem(storageKey); send({ type: "create", name, circles: selectedCircles, baseScore: selectedBaseScore }); };
 $("#join-room").onclick = () => { const name = $("#nickname").value.trim(), roomCode = $("#room-code-input").value.trim().toUpperCase(); if (!name || roomCode.length !== 6) return showToast("请输入称呼和六位房间号"); localStorage.setItem(nameKey, name); localStorage.removeItem(storageKey); send({ type: "join", name, roomCode }); };
 $("#copy-room-code").onclick = async () => { const invite = `${location.origin}${location.pathname}?room=${roomState.roomCode}`; try { await navigator.clipboard.writeText(location.protocol === "file:" ? roomState.roomCode : invite); showToast("邀请信息已复制"); } catch { showToast(`房间号：${roomState.roomCode}`); } };
+$("#add-bot").onclick = () => send({ type: "action", action: "addBot" });
+$("#remove-bot").onclick = () => send({ type: "action", action: "removeBot" });
 $("#start-online-game").onclick = () => send({ type: "action", action: "start" });
 $("#online-discard-btn").onclick = () => { if (selectedTileId) send({ type: "action", action: "discard", tileId: selectedTileId }); };
 $("#online-gang-btn").onclick = () => send({ type: "action", action: "gang" });

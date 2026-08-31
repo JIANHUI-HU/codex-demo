@@ -91,13 +91,37 @@ function reconnectRoom(socket, payload) {
   const code = String(payload.roomCode || "").trim().toUpperCase();
   const room = rooms.get(code);
   if (!room) return sendError(socket, "原房间已经失效");
-  const seat = room.players.findIndex((player) => player?.token === payload.token);
+  if (typeof payload.token !== "string" || !payload.token) return sendError(socket, "重连凭证无效");
+  const seat = room.players.findIndex((player) => !player?.bot && player?.token === payload.token);
   if (seat < 0) return sendError(socket, "重连凭证无效");
   const player = room.players[seat];
   if (player.socket && player.socket !== socket) player.socket.close(4001, "在另一设备重连");
   player.socket = socket; player.connected = true; room.touchedAt = Date.now(); attachSession(socket, room, seat);
   send(socket, { type: "session", roomCode: code, seat, token: player.token, reconnected: true });
   broadcastRoom(room);
+}
+
+function addBot(room) {
+  if (room.status !== "waiting") return false;
+  const seat = room.players.findIndex((player) => !player);
+  if (seat < 0) return false;
+  const usedNumbers = new Set(room.players.filter((player) => player?.bot).map((player) => Number(player.name.replace(/\D/g, ""))));
+  let number = 1;
+  while (usedNumbers.has(number)) number += 1;
+  room.players[seat] = { name: `电脑${number}`, token: null, socket: null, connected: true, bot: true };
+  broadcastRoom(room);
+  return true;
+}
+
+function removeBot(room) {
+  if (room.status !== "waiting") return false;
+  for (let seat = room.players.length - 1; seat >= 0; seat -= 1) {
+    if (!room.players[seat]?.bot) continue;
+    room.players[seat] = null;
+    broadcastRoom(room);
+    return true;
+  }
+  return false;
 }
 
 function attachSession(socket, room, seat) { socket.session = { roomCode: room.code, seat }; }
@@ -111,6 +135,7 @@ function roomSnapshot(room, viewerSeat) {
     return player ? {
       name: player.name,
       connected: player.connected,
+      bot: Boolean(player.bot),
       owner: seat === room.ownerSeat,
       seatWind: room.match ? room.match.seatWinds[seat] : null,
       handCount: room.game ? room.game.hands[seat].length : 0,
@@ -125,7 +150,8 @@ function roomSnapshot(room, viewerSeat) {
     baseScore: room.baseScore,
     isOwner: viewerSeat === room.ownerSeat,
     players,
-    connectedCount: room.players.filter((player) => player?.connected).length,
+    connectedCount: room.players.filter((player) => player && (player.bot || player.connected)).length,
+    botCount: room.players.filter((player) => player?.bot).length,
   };
   if (!room.match || !room.game) return snapshot;
   const game = room.game;
@@ -206,7 +232,7 @@ function applyScore(room, settlement, event) {
   room.game.scoreEvents.push({ ...event, amount: settlement.amount, deltas: settlement.deltas });
 }
 function startMatch(room) {
-  if (room.players.some((player) => !player?.connected)) return false;
+  if (room.players.some((player) => !player || (!player.bot && !player.connected))) return false;
   room.match = { handIndex: 0, totalHands: room.circles ? room.circles * 4 : 1, seatWinds: randomSeatWinds(), wins: [0, 0, 0, 0], scores: [0, 0, 0, 0] };
   startHand(room); return true;
 }
@@ -226,7 +252,49 @@ function beginTurn(room) {
   const game = room.game;
   if (!game || game.phase === "finished") return;
   if (!game.wall.length) return finishDraw(room);
-  const tile = game.wall.pop(); game.hands[game.turn].push(tile); game.drawnIds.fill(null); game.drawnIds[game.turn] = tile.id; game.phase = "discard"; broadcastRoom(room);
+  const tile = game.wall.pop(); game.hands[game.turn].push(tile); game.drawnIds.fill(null); game.drawnIds[game.turn] = tile.id; game.phase = "discard"; broadcastRoom(room); scheduleBotTurn(room, game.turn);
+}
+
+function botKeepValue(hand, tile) {
+  const counts = countsOf(hand);
+  const code = tileCode(tile);
+  let value = counts[code] * 4;
+  if (code >= 27) return value;
+  const position = code % 9;
+  if (position > 0) value += counts[code - 1] * 2;
+  if (position < 8) value += counts[code + 1] * 2;
+  if (position > 1) value += counts[code - 2] * 0.7;
+  if (position < 7) value += counts[code + 2] * 0.7;
+  if (position === 0 || position === 8) value -= 0.4;
+  return value;
+}
+function chooseBotDiscard(hand) {
+  return [...hand].sort((a, b) => botKeepValue(hand, a) - botKeepValue(hand, b) || a.id.localeCompare(b.id))[0];
+}
+function scheduleBotTurn(room, seat) {
+  if (!room.players[seat]?.bot) return;
+  later(room, () => {
+    const game = room.game;
+    if (!game || game.phase !== "discard" || game.turn !== seat) return;
+    const legal = legalActions(room, seat);
+    if (legal.hu) return selfHu(room, seat);
+    if (legal.gang && game.wall.length > 1 && crypto.randomInt(100) < 80) return concealedGang(room, seat);
+    const tile = chooseBotDiscard(game.hands[seat]);
+    if (tile) discard(room, seat, tile.id);
+  }, 650 + crypto.randomInt(450));
+}
+function scheduleBotClaims(room) {
+  Object.keys(room.game.claimOptions || {}).forEach((seatKey) => {
+    const seat = Number(seatKey);
+    if (!room.players[seat]?.bot) return;
+    later(room, () => {
+      const game = room.game;
+      const options = game?.claimOptions?.[seat];
+      if (!game || game.phase !== "claim" || !options || seat in game.claimResponses) return;
+      const action = options.hu ? "hu" : options.gang ? "gang" : options.peng && crypto.randomInt(100) < 70 ? "peng" : "pass";
+      respondClaim(room, seat, action);
+    }, 420 + crypto.randomInt(380));
+  });
 }
 
 function discard(room, seat, tileId) {
@@ -248,7 +316,7 @@ function prepareClaims(room) {
     if (option.hu || option.gang || option.peng) game.claimOptions[seat] = option;
   }
   if (!Object.keys(game.claimOptions).length) return moveAfterDiscard(room);
-  game.phase = "claim"; broadcastRoom(room); later(room, () => resolveClaims(room), 8000);
+  game.phase = "claim"; broadcastRoom(room); scheduleBotClaims(room); later(room, () => resolveClaims(room), 8000);
 }
 function respondClaim(room, seat, action) {
   const game = room.game;
@@ -291,7 +359,7 @@ function applyClaim(room, seat, action) {
   if (action === "gang") applyScore(room, gangSettlement({ baseScore: room.baseScore, winner: seat, source }), { type: "明杠", winner: seat, source });
   game.turn = seat; game.last = null; game.claimOptions = null; game.claimResponses = {}; sortTiles(game.hands[seat]);
   if (action === "gang") return drawSupplement(room, seat);
-  game.phase = "discard"; broadcastRoom(room);
+  game.phase = "discard"; broadcastRoom(room); scheduleBotTurn(room, seat);
 }
 function concealedGang(room, seat) {
   const game = room.game;
@@ -306,7 +374,7 @@ function concealedGang(room, seat) {
 function drawSupplement(room, seat) {
   const game = room.game;
   if (!game.wall.length) return finishDraw(room);
-  const tile = game.wall.pop(); game.hands[seat].push(tile); game.drawnIds.fill(null); game.drawnIds[seat] = tile.id; game.turn = seat; game.phase = "discard"; broadcastRoom(room);
+  const tile = game.wall.pop(); game.hands[seat].push(tile); game.drawnIds.fill(null); game.drawnIds[seat] = tile.id; game.turn = seat; game.phase = "discard"; broadcastRoom(room); scheduleBotTurn(room, seat);
 }
 function selfHu(room, seat) {
   const game = room.game;
@@ -348,7 +416,15 @@ function handleAction(socket, payload) {
   switch (payload.action) {
     case "start":
       if (seat !== room.ownerSeat) return sendError(socket, "只有房主可以开始");
-      if (!startMatch(room)) return sendError(socket, "需要四位玩家全部在线才能开始");
+      if (!startMatch(room)) return sendError(socket, "需要补满四个座位且真人在线才能开始");
+      break;
+    case "addBot":
+      if (seat !== room.ownerSeat) return sendError(socket, "只有房主可以添加电脑玩家");
+      if (!addBot(room)) sendError(socket, "当前无法添加电脑玩家");
+      break;
+    case "removeBot":
+      if (seat !== room.ownerSeat) return sendError(socket, "只有房主可以移除电脑玩家");
+      if (!removeBot(room)) sendError(socket, "当前没有可移除的电脑玩家");
       break;
     case "discard": if (!discard(room, seat, String(payload.tileId || ""))) sendError(socket, "当前不能打出这张牌"); break;
     case "peng": if (!respondClaim(room, seat, "peng")) sendError(socket, "当前不能碰"); break;
@@ -359,7 +435,7 @@ function handleAction(socket, payload) {
     case "hu": if (!selfHu(room, seat)) sendError(socket, "当前不能自摸"); break;
     case "next":
       if (seat !== room.ownerSeat) return sendError(socket, "请等待房主开始下一局");
-      if (room.players.some((player) => !player?.connected)) return sendError(socket, "有玩家离线，暂时不能继续");
+      if (room.players.some((player) => !player || (!player.bot && !player.connected))) return sendError(socket, "有玩家离线，暂时不能继续");
       if (!advanceMatch(room)) sendError(socket, "当前不能开始下一局");
       break;
     default: sendError(socket, "未知操作");
@@ -389,7 +465,7 @@ wss.on("connection", (socket) => {
 
 setInterval(() => {
   const expiry = Date.now() - 30 * 60 * 1000;
-  for (const [code, room] of rooms) if (room.touchedAt < expiry && room.players.every((player) => !player?.connected)) { clearRoomTimers(room); rooms.delete(code); }
+  for (const [code, room] of rooms) if (room.touchedAt < expiry && room.players.filter((player) => !player?.bot).every((player) => !player?.connected)) { clearRoomTimers(room); rooms.delete(code); }
 }, 60_000).unref();
 
 server.listen(PORT, HOST, () => console.log(`六合麻将服务已启动：http://localhost:${server.address().port}`));
