@@ -2,7 +2,19 @@
 
 const suits = ["万", "筒", "条"];
 const honors = ["东", "南", "西", "北", "中", "发", "白"];
-const fanValue = { "平胡": 1, "断幺": 1, "缺一门": 1, "对对胡": 1, "混一色": 1, "清一色": 4 };
+const fanValue = {
+  "平胡": 1,
+  "断幺": 1,
+  "缺一门": 1,
+  "对对胡": 1,
+  "混一色": 1,
+  "红中刻": 1,
+  "发财刻": 1,
+  "白板刻": 1,
+  "门风刻": 1,
+  "圈风刻": 1,
+  "清一色": 4,
+};
 
 function makeWall() {
   const wall = [];
@@ -70,7 +82,7 @@ function isAllSequences(hand) {
   return false;
 }
 
-function patternsFor(hand, melds = [], extraTile = null) {
+function patternsFor(hand, melds = [], extraTile = null, context = {}) {
   const concealed = extraTile ? [...hand, extraTile] : [...hand];
   if (!isStandardWin(concealed)) return [];
   const allTiles = [...concealed, ...melds.flatMap((meld) => meld.tiles)];
@@ -86,9 +98,55 @@ function patternsFor(hand, melds = [], extraTile = null) {
   if (counts.filter((value) => value >= 3).length + melds.length >= 4) patterns.push("对对胡");
   if (!hasHonor && suitSet.size === 1) patterns.push("清一色");
   if (hasHonor && suitSet.size === 1) patterns.push("混一色");
+  const allCounts = countsOf(allTiles);
+  ["红中刻", "发财刻", "白板刻"].forEach((pattern, index) => {
+    if (allCounts[31 + index] >= 3) patterns.push(pattern);
+  });
+  if (Number.isInteger(context.seatWind) && allCounts[27 + context.seatWind] >= 3) patterns.push("门风刻");
+  if (Number.isInteger(context.circleWind) && allCounts[27 + context.circleWind] >= 3) patterns.push("圈风刻");
   return patterns;
 }
 
-function fanTotal(patterns) { return patterns.reduce((total, pattern) => total + (fanValue[pattern] || 1), 0); }
+function fanTotal(patterns) {
+  return Math.min(4, patterns.reduce((total, pattern) => total + (fanValue[pattern] || 1), 0));
+}
 
-module.exports = { makeWall, tileCode, sortTiles, countsOf, isStandardWin, patternsFor, fanValue, fanTotal };
+function winUnit(baseScore, fan) {
+  const safeBase = Math.max(1, Number(baseScore) || 1);
+  const safeFan = Math.max(1, Math.min(4, Number(fan) || 1));
+  return safeBase * (2 ** (safeFan - 1));
+}
+
+function winSettlement({ baseScore, fan, winner, selfDraw, discarder = null }) {
+  const amount = winUnit(baseScore, fan);
+  const deltas = [0, 0, 0, 0];
+  if (selfDraw) {
+    for (let seat = 0; seat < 4; seat += 1) {
+      if (seat === winner) continue;
+      deltas[seat] -= amount;
+      deltas[winner] += amount;
+    }
+  } else if (Number.isInteger(discarder) && discarder !== winner) {
+    deltas[discarder] -= amount;
+    deltas[winner] += amount;
+  }
+  return { amount, deltas };
+}
+
+function gangSettlement({ baseScore, winner, source = null, concealed = false }) {
+  const amount = Math.max(1, Number(baseScore) || 1) * 5;
+  const deltas = [0, 0, 0, 0];
+  if (concealed) {
+    for (let seat = 0; seat < 4; seat += 1) {
+      if (seat === winner) continue;
+      deltas[seat] -= amount;
+      deltas[winner] += amount;
+    }
+  } else if (Number.isInteger(source) && source !== winner) {
+    deltas[source] -= amount;
+    deltas[winner] += amount;
+  }
+  return { amount, deltas };
+}
+
+module.exports = { makeWall, tileCode, sortTiles, countsOf, isStandardWin, patternsFor, fanValue, fanTotal, winUnit, winSettlement, gangSettlement };

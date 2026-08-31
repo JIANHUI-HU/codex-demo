@@ -11,6 +11,7 @@ let socket;
 let roomState = null;
 let selectedTileId = null;
 let selectedCircles = 0;
+let selectedBaseScore = 1;
 let reconnectTimer;
 let lastPhase = null;
 let shownResultKey = null;
@@ -77,6 +78,8 @@ function showLobbyEntry() {
 function renderWaitingRoom() {
   $("#lobby").hidden = false; $("#lobby-entry").hidden = true; $("#waiting-room").hidden = false; $("#online-table").hidden = true;
   $("#room-code").textContent = roomState.roomCode;
+  const modeText = roomState.circles ? `${roomState.circles}圈` : "单局";
+  $("#waiting-rules").textContent = `${modeText} · 底数 ${roomState.baseScore} · 一番一底`;
   const list = $("#waiting-players"); list.replaceChildren();
   roomState.players.forEach((player, index) => {
     const item = document.createElement("li"); item.dataset.seat = index === 0 ? "我" : index === 1 ? "左" : index === 2 ? "对" : "右";
@@ -90,6 +93,7 @@ function renderWaitingRoom() {
 }
 
 function tileCode(tile) { return tile.suitIndex === 3 ? 27 + tile.number : tile.suitIndex * 9 + tile.number - 1; }
+function signedScore(score) { return `${score > 0 ? "+" : ""}${score}分`; }
 function tileFace(tile) {
   if (tile.suitIndex === 0) return `<div class="wan"><strong>${chineseNumbers[tile.number]}</strong><span>萬</span></div>`;
   if (tile.suitIndex === 1) return `<div class="dots n${tile.number}">${Array(tile.number).fill("<i></i>").join("")}</div>`;
@@ -123,16 +127,25 @@ function renderOnlineGame() {
   $("#table-room-code").textContent = `房间 ${roomState.roomCode}`;
   const circleWind = windNames[matchState.circleWind];
   $("#match-progress").textContent = roomState.circles ? `第 ${matchState.circleIndex + 1}/${roomState.circles} 圈 · 本圈第 ${matchState.handInCircle}/4 局` : "单局 · 门风随机";
+  const scoreBoard = $("#match-scores"); scoreBoard.replaceChildren();
+  players.forEach((player, seat) => {
+    const item = document.createElement("span");
+    item.className = matchState.scores[seat] > 0 ? "positive" : matchState.scores[seat] < 0 ? "negative" : "";
+    item.textContent = `${seat === 0 ? "我" : player?.name || "牌友"} ${signedScore(matchState.scores[seat])}`;
+    scoreBoard.append(item);
+  });
   $("#online-round-label").textContent = `${circleWind}风圈 · 第${matchState.handInCircle}局`;
   $("#online-wall-count").textContent = game.wallCount;
   $("#self-name").textContent = players[0]?.name || "你";
   $("#online-self-wind").textContent = `${windNames[players[0]?.seatWind ?? 0]}家`;
+  $("#online-self-score").textContent = `${signedScore(matchState.scores[0])} · ${roomState.baseScore}底`;
   for (let seat = 1; seat < 4; seat += 1) {
     const player = players[seat]; const element = $(`#online-player-${seat}`);
     element.querySelector("b").textContent = player ? windNames[player.seatWind] : "·";
     element.querySelector("p strong").textContent = player?.name || "空位";
     element.querySelector("p span").textContent = player ? `${player.handCount} 张${player.connected ? "" : " · 离线"}` : "";
     element.querySelector("p em").textContent = player?.melds.map((meld) => meld.type).join(" · ") || "";
+    element.querySelector("p mark").textContent = signedScore(matchState.scores[seat]);
     element.classList.toggle("active", game.turn === seat && !game.over && !game.dealing);
   }
   renderMelds();
@@ -184,6 +197,18 @@ function showResult(state) {
   const hand = $("#online-result-hand"); hand.replaceChildren(); result.hand.forEach((tile) => { const face = createTile(tile); face.disabled = true; hand.append(face); });
   const melds = $("#online-result-melds"); melds.replaceChildren(); result.melds.forEach((meld) => { const group = document.createElement("div"); group.className = "result-meld"; meld.tiles.forEach((tile) => { const face = createTile(tile, true); face.disabled = true; group.append(face); }); const label = document.createElement("span"); label.textContent = meld.type; group.append(label); melds.append(group); });
   $("#online-result-patterns").innerHTML = result.kind === "draw" ? "<span>本局无人和牌</span>" : result.patterns.map((pattern) => `<span>${pattern}</span>`).join("") + `<span>共 ${result.fan} 番</span>`;
+  $("#online-result-formula").textContent = result.kind === "draw"
+    ? (result.scoreEvents.length ? "流局不结算胡牌分，本局已经发生的杠分保留。" : "流局不结算积分。")
+    : `${roomState.baseScore}底 × 2^(${result.fan}番 − 1) = ${result.amount}分/份；${result.selfDraw ? "其余三家各付一份" : "仅点炮者支付一份"}。`;
+  const settlement = $("#online-result-settlement"); settlement.replaceChildren();
+  state.players.forEach((player, seat) => {
+    const row = document.createElement("div");
+    const delta = result.scoreDeltas[seat];
+    row.className = delta > 0 ? "positive" : delta < 0 ? "negative" : "";
+    row.innerHTML = `<span>${escapeHtml(seat === 0 ? "你" : player?.name || "牌友")}</span><strong>${signedScore(delta)}</strong>`;
+    settlement.append(row);
+  });
+  $("#online-result-scores").textContent = `累计：${state.players.map((player, seat) => `${seat === 0 ? "你" : player?.name || "牌友"} ${signedScore(result.scores[seat])}`).join("　")}`;
   const next = $("#online-next-btn"); next.disabled = !state.isOwner; next.textContent = state.isOwner ? (state.match.handIndex + 1 >= state.match.totalHands ? "再开一场" : "下一局") : "等待房主开始下一局";
   setTimeout(() => { if (!dialog.open) dialog.showModal(); }, 150);
 }
@@ -194,7 +219,8 @@ function showToast(message) { const toast = $("#online-toast"); toast.textConten
 $("#nickname").value = localStorage.getItem(nameKey) || "";
 const queryRoom = new URLSearchParams(location.search).get("room"); if (queryRoom) $("#room-code-input").value = queryRoom.toUpperCase();
 document.querySelectorAll(".online-mode-buttons button").forEach((button) => { button.onclick = () => { selectedCircles = Number(button.dataset.circles); document.querySelectorAll(".online-mode-buttons button").forEach((item) => item.classList.toggle("active", item === button)); }; });
-$("#create-room").onclick = () => { const name = $("#nickname").value.trim(); if (!name) return showToast("请先输入称呼"); localStorage.setItem(nameKey, name); localStorage.removeItem(storageKey); send({ type: "create", name, circles: selectedCircles }); };
+document.querySelectorAll(".online-base-buttons button").forEach((button) => { button.onclick = () => { selectedBaseScore = Number(button.dataset.base); document.querySelectorAll(".online-base-buttons button").forEach((item) => item.classList.toggle("active", item === button)); }; });
+$("#create-room").onclick = () => { const name = $("#nickname").value.trim(); if (!name) return showToast("请先输入称呼"); localStorage.setItem(nameKey, name); localStorage.removeItem(storageKey); send({ type: "create", name, circles: selectedCircles, baseScore: selectedBaseScore }); };
 $("#join-room").onclick = () => { const name = $("#nickname").value.trim(), roomCode = $("#room-code-input").value.trim().toUpperCase(); if (!name || roomCode.length !== 6) return showToast("请输入称呼和六位房间号"); localStorage.setItem(nameKey, name); localStorage.removeItem(storageKey); send({ type: "join", name, roomCode }); };
 $("#copy-room-code").onclick = async () => { const invite = `${location.origin}${location.pathname}?room=${roomState.roomCode}`; try { await navigator.clipboard.writeText(location.protocol === "file:" ? roomState.roomCode : invite); showToast("邀请信息已复制"); } catch { showToast(`房间号：${roomState.roomCode}`); } };
 $("#start-online-game").onclick = () => send({ type: "action", action: "start" });

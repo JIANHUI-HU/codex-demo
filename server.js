@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { WebSocketServer, WebSocket } = require("ws");
-const { makeWall, tileCode, sortTiles, countsOf, patternsFor, fanTotal } = require("./game-rules");
+const { makeWall, tileCode, sortTiles, countsOf, patternsFor, fanTotal, winSettlement, gangSettlement } = require("./game-rules");
 
 const requestedPort = Number(process.env.PORT);
 const PORT = Number.isInteger(requestedPort) && requestedPort >= 0 ? requestedPort : 3000;
@@ -53,11 +53,13 @@ function createRoom(ownerSocket, payload) {
   const code = makeCode();
   const token = makeToken();
   const circles = [0, 4, 8, 12].includes(Number(payload.circles)) ? Number(payload.circles) : 0;
+  const baseScore = [1, 2, 5, 10, 20].includes(Number(payload.baseScore)) ? Number(payload.baseScore) : 1;
   const room = {
     code,
     ownerSeat: 0,
     status: "waiting",
     circles,
+    baseScore,
     players: [{ name: safeName(payload.name), token, socket: ownerSocket, connected: true }, null, null, null],
     match: null,
     game: null,
@@ -120,6 +122,7 @@ function roomSnapshot(room, viewerSeat) {
     roomCode: room.code,
     roomStatus: room.status,
     circles: room.circles,
+    baseScore: room.baseScore,
     isOwner: viewerSeat === room.ownerSeat,
     players,
     connectedCount: room.players.filter((player) => player?.connected).length,
@@ -134,6 +137,7 @@ function roomSnapshot(room, viewerSeat) {
     handInCircle: room.circles ? room.match.handIndex % 4 + 1 : 1,
     circleWind: circleIndex % 4,
     wins: [0, 1, 2, 3].map((relative) => room.match.wins[actualSeat(relative, viewerSeat)]),
+    scores: [0, 1, 2, 3].map((relative) => room.match.scores[actualSeat(relative, viewerSeat)]),
   };
   snapshot.game = {
     phase: game.phase,
@@ -150,6 +154,15 @@ function roomSnapshot(room, viewerSeat) {
     result: game.result ? {
       ...game.result,
       winner: game.result.winner == null ? null : relativeSeat(game.result.winner, viewerSeat),
+      discarder: game.result.discarder == null ? null : relativeSeat(game.result.discarder, viewerSeat),
+      scoreDeltas: [0, 1, 2, 3].map((relative) => game.result.scoreDeltas[actualSeat(relative, viewerSeat)]),
+      scores: [0, 1, 2, 3].map((relative) => game.result.scores[actualSeat(relative, viewerSeat)]),
+      scoreEvents: game.result.scoreEvents.map((event) => ({
+        ...event,
+        winner: relativeSeat(event.winner, viewerSeat),
+        source: event.source == null ? null : relativeSeat(event.source, viewerSeat),
+        deltas: [0, 1, 2, 3].map((relative) => event.deltas[actualSeat(relative, viewerSeat)]),
+      })),
     } : null,
   };
   return snapshot;
@@ -161,7 +174,7 @@ function legalActions(room, seat) {
   if (!game || game.phase === "finished" || game.phase === "dealing") return legal;
   if (game.phase === "discard" && game.turn === seat) {
     legal.discard = true;
-    legal.hu = patternsFor(game.hands[seat], game.melds[seat]).length > 0;
+    legal.hu = patternsForSeat(room, seat).length > 0;
     legal.gang = countsOf(game.hands[seat]).some((count) => count === 4);
   }
   if (game.phase === "claim" && game.claimOptions?.[seat] && !(seat in game.claimResponses)) {
@@ -179,9 +192,22 @@ function randomSeatWinds() {
   const dealer = crypto.randomInt(4);
   return [0, 1, 2, 3].map((seat) => (dealer - seat + 4) % 4);
 }
+function currentCircleWind(room) {
+  return room.circles ? Math.floor(room.match.handIndex / 4) % 4 : 0;
+}
+function patternsForSeat(room, seat, extraTile = null) {
+  return patternsFor(room.game.hands[seat], room.game.melds[seat], extraTile, {
+    seatWind: room.match.seatWinds[seat],
+    circleWind: currentCircleWind(room),
+  });
+}
+function applyScore(room, settlement, event) {
+  settlement.deltas.forEach((delta, seat) => { room.match.scores[seat] += delta; });
+  room.game.scoreEvents.push({ ...event, amount: settlement.amount, deltas: settlement.deltas });
+}
 function startMatch(room) {
   if (room.players.some((player) => !player?.connected)) return false;
-  room.match = { handIndex: 0, totalHands: room.circles ? room.circles * 4 : 1, seatWinds: randomSeatWinds(), wins: [0, 0, 0, 0] };
+  room.match = { handIndex: 0, totalHands: room.circles ? room.circles * 4 : 1, seatWinds: randomSeatWinds(), wins: [0, 0, 0, 0], scores: [0, 0, 0, 0] };
   startHand(room); return true;
 }
 function startHand(room) {
@@ -192,7 +218,7 @@ function startHand(room) {
   hands.forEach(sortTiles);
   const dealer = room.match.seatWinds.indexOf(0);
   room.status = "playing";
-  room.game = { wall, hands, melds: [[], [], [], []], river: [], turn: dealer, dealer, phase: "dealing", drawnIds: [null, null, null, null], last: null, result: null, claimOptions: null, claimResponses: {} };
+  room.game = { wall, hands, melds: [[], [], [], []], river: [], turn: dealer, dealer, phase: "dealing", drawnIds: [null, null, null, null], last: null, result: null, claimOptions: null, claimResponses: {}, handStartScores: [...room.match.scores], scoreEvents: [] };
   broadcastRoom(room);
   later(room, () => beginTurn(room), 2650);
 }
@@ -218,7 +244,7 @@ function prepareClaims(room) {
   for (let seat = 0; seat < 4; seat += 1) {
     if (seat === game.last.from) continue;
     const count = game.hands[seat].filter((tile) => tileCode(tile) === tileCode(game.last.tile)).length;
-    const option = { hu: patternsFor(game.hands[seat], game.melds[seat], game.last.tile).length > 0, gang: count >= 3, peng: count >= 2 };
+    const option = { hu: patternsForSeat(room, seat, game.last.tile).length > 0, gang: count >= 3, peng: count >= 2 };
     if (option.hu || option.gang || option.peng) game.claimOptions[seat] = option;
   }
   if (!Object.keys(game.claimOptions).length) return moveAfterDiscard(room);
@@ -256,11 +282,13 @@ function removeMatching(hand, code, amount) {
 }
 function applyClaim(room, seat, action) {
   const game = room.game;
+  const source = game.last.from;
   const incoming = game.river.pop().tile;
   const amount = action === "peng" ? 2 : 3;
   const removed = removeMatching(game.hands[seat], tileCode(incoming), amount);
   if (!removed) return moveAfterDiscard(room);
   game.melds[seat].push({ type: action === "peng" ? "碰" : "杠", tiles: [...removed, incoming] });
+  if (action === "gang") applyScore(room, gangSettlement({ baseScore: room.baseScore, winner: seat, source }), { type: "明杠", winner: seat, source });
   game.turn = seat; game.last = null; game.claimOptions = null; game.claimResponses = {}; sortTiles(game.hands[seat]);
   if (action === "gang") return drawSupplement(room, seat);
   game.phase = "discard"; broadcastRoom(room);
@@ -271,7 +299,9 @@ function concealedGang(room, seat) {
   const code = countsOf(game.hands[seat]).findIndex((count) => count === 4);
   if (code < 0) return false;
   const removed = removeMatching(game.hands[seat], code, 4);
-  game.melds[seat].push({ type: "暗杠", tiles: removed }); game.drawnIds[seat] = null; drawSupplement(room, seat); return true;
+  game.melds[seat].push({ type: "暗杠", tiles: removed });
+  applyScore(room, gangSettlement({ baseScore: room.baseScore, winner: seat, concealed: true }), { type: "暗杠", winner: seat, source: null });
+  game.drawnIds[seat] = null; drawSupplement(room, seat); return true;
 }
 function drawSupplement(room, seat) {
   const game = room.game;
@@ -280,22 +310,26 @@ function drawSupplement(room, seat) {
 }
 function selfHu(room, seat) {
   const game = room.game;
-  if (game.phase !== "discard" || game.turn !== seat || !patternsFor(game.hands[seat], game.melds[seat]).length) return false;
+  if (game.phase !== "discard" || game.turn !== seat || !patternsForSeat(room, seat).length) return false;
   finishGame(room, seat, null); return true;
 }
 function finishGame(room, winner, winningTile) {
   const game = room.game;
   if (!game || game.phase === "finished") return;
-  const patterns = patternsFor(game.hands[winner], game.melds[winner], winningTile);
+  const patterns = patternsForSeat(room, winner, winningTile);
+  const fan = fanTotal(patterns);
+  const discarder = winningTile ? game.last.from : null;
+  const settlement = winSettlement({ baseScore: room.baseScore, fan, winner, selfDraw: !winningTile, discarder });
+  applyScore(room, settlement, { type: winningTile ? "点炮" : "自摸", winner, source: discarder });
   room.match.wins[winner] += 1;
   game.phase = "finished";
-  game.result = { kind: "win", winner, winnerName: room.players[winner].name, selfDraw: !winningTile, patterns, fan: fanTotal(patterns), hand: sortTiles(winningTile ? [...game.hands[winner], winningTile] : [...game.hands[winner]]), melds: game.melds[winner] };
+  game.result = { kind: "win", winner, winnerName: room.players[winner].name, discarder, selfDraw: !winningTile, patterns, fan, amount: settlement.amount, hand: sortTiles(winningTile ? [...game.hands[winner], winningTile] : [...game.hands[winner]]), melds: game.melds[winner], scoreDeltas: room.match.scores.map((score, seat) => score - game.handStartScores[seat]), scores: [...room.match.scores], scoreEvents: [...game.scoreEvents] };
   broadcastRoom(room);
 }
 function finishDraw(room) {
   const game = room.game;
   if (!game || game.phase === "finished") return;
-  game.phase = "finished"; game.result = { kind: "draw", winner: null, winnerName: null, selfDraw: false, patterns: [], fan: 0, hand: [], melds: [] }; broadcastRoom(room);
+  game.phase = "finished"; game.result = { kind: "draw", winner: null, winnerName: null, discarder: null, selfDraw: false, patterns: [], fan: 0, amount: 0, hand: [], melds: [], scoreDeltas: room.match.scores.map((score, seat) => score - game.handStartScores[seat]), scores: [...room.match.scores], scoreEvents: [...game.scoreEvents] }; broadcastRoom(room);
 }
 function advanceMatch(room) {
   if (room.game?.phase !== "finished") return false;

@@ -26,7 +26,7 @@ test("四位玩家可创建、加入并同步发牌", { timeout: 12_000 }, async
     if (queuedIndex >= 0) return Promise.resolve(queues[index].splice(queuedIndex, 1)[0]);
     return new Promise((resolve) => waiters[index].push({ predicate, resolve }));
   }
-  clients[0].send(JSON.stringify({ type: "create", name: "房主", circles: 0 }));
+  clients[0].send(JSON.stringify({ type: "create", name: "房主", circles: 0, baseScore: 5 }));
   const session = await waitFor(0, (message) => message.type === "session");
   for (let index = 1; index < 4; index += 1) {
     clients[index].send(JSON.stringify({ type: "join", name: `牌友${index}`, roomCode: session.roomCode }));
@@ -34,12 +34,14 @@ test("四位玩家可创建、加入并同步发牌", { timeout: 12_000 }, async
   }
   const ready = await waitFor(0, (message) => message.type === "state" && message.connectedCount === 4);
   assert.equal(ready.players.filter(Boolean).length, 4);
+  assert.equal(ready.baseScore, 5);
   clients[0].send(JSON.stringify({ type: "action", action: "start" }));
   const dealtStates = await Promise.all([0, 1, 2, 3].map((index) => waitFor(index, (message) => message.type === "state" && message.game?.phase === "discard")));
   assert.equal(dealtStates.filter((state) => state.game.turn === 0).length, 1);
   dealtStates.forEach((state) => {
     assert.equal(state.game.hand.length, state.game.turn === 0 ? 14 : 13);
     assert.equal(state.players.length, 4);
+    assert.deepEqual(state.match.scores, [0, 0, 0, 0]);
   });
   const activeClient = dealtStates.findIndex((state) => state.game.turn === 0);
   const discardedId = dealtStates[activeClient].game.hand[0].id;
