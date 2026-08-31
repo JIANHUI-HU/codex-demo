@@ -29,3 +29,14 @@
 .match-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 12px;padding:8px 10px;border:1px solid #ffffff17;border-radius:14px;background:#062f298f}.mode-buttons{display:flex;gap:4px;padding:3px;border-radius:10px;background:#022b25}.mode-buttons button{padding:7px 12px;border:0;border-radius:8px;background:transparent;color:#9fc2b5;font-size:11px;font-weight:700}.mode-buttons button:hover{color:#f0d88e}.mode-buttons button.active{background:linear-gradient(135deg,#d9bd69,#aa8137);color:#173d34;box-shadow:0 3px 9px #001d185c}.match-toolbar p{margin:0;color:#d9c584;font-size:10px;letter-spacing:.04em;text-align:right}.hand-head b{color:#e5c86f;font-weight:700}
 @media(max-width:620px){.match-toolbar{margin-inline:10px;align-items:stretch;flex-direction:column;gap:6px}.mode-buttons{display:grid;grid-template-columns:repeat(4,1fr)}.mode-buttons button{padding-inline:5px}.match-toolbar p{text-align:center}}
 .online-link{display:inline-flex;align-items:center;padding:8px 14px;border-radius:999px;background:linear-gradient(135deg,#dfc16d,#b88c39);color:#173d34;font-size:12px;font-weight:800;text-decoration:none}.online-link.secondary{border:1px solid #ffffff26;background:#ffffff0d;color:#eee2c4}
+
+/* 牌仍放在各家门前，但所有公开牌面都旋回为当前玩家可读的正向。 */
+.river-1 .tile,.player.left .opponent-melds .tile{transform:rotate(-90deg)}
+.river-2 .tile{transform:rotate(180deg)}
+.river-3 .tile,.player.right .opponent-melds .tile{transform:rotate(90deg)}
+.river-1 .tile,.river-2 .tile,.river-3 .tile,.player.left .opponent-melds .tile,.player.right .opponent-melds .tile{transform-origin:center;box-shadow:inset 0 0 0 1px #fff9d4,0 2px 5px #00261f}
+.player.left .opponent-melds,.player.right .opponent-melds{top:50px;display:flex;flex-direction:column;gap:4px;transform:none}
+.player.left .opponent-melds{right:auto;left:0;align-items:flex-start;transform:none}
+.player.right .opponent-melds{right:0;left:auto;align-items:flex-end;transform:none}
+.player.left .opponent-melds .tile,.player.right .opponent-melds .tile{transform:none}
+@media(min-width:621px){.player.left .opponent-melds .tile,.player.right .opponent-melds .tile{width:28px;height:38px}.player.left .opponent-melds .tile-inset,.player.right .opponent-melds .tile-inset{transform:scale(.56)}}

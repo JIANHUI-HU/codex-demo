@@ -35,6 +35,7 @@ function makeWall() {
 
 const tileCode = (tile) => tile.suitIndex === 3 ? 27 + tile.number : tile.suitIndex * 9 + tile.number - 1;
 const sortHand = (player) => game.hands[player].sort((a, b) => tileCode(a) - tileCode(b));
+const nextPlayer = (player) => (player + 3) % 4;
 
 function shuffledSeatWinds() {
   const dealer = Math.floor(Math.random() * 4);
@@ -102,7 +103,7 @@ function playDealAnimation() {
     { x: width * 0.39, y: 0, rotation: -90 },
   ];
   for (let index = 0; index < 52; index += 1) {
-    const player = (game.dealer + index) % 4;
+    const player = (game.dealer - index + 52) % 4;
     const destination = destinations[player];
     const card = document.createElement("i");
     card.className = "deal-card";
@@ -299,7 +300,7 @@ function checkResponses() {
     if (claims.hu || claims.gang || claims.peng) { game.turn = 0; game.phase = "claim"; render(); return; }
   }
   for (let distance = 1; distance < 4; distance += 1) {
-    const player = (from + distance) % 4;
+    const player = (from - distance + 4) % 4;
     if (player !== 0 && claimsFor(player, tile).hu) { finishGame(player, tile); return; }
   }
   botClaimOrNext();
@@ -308,13 +309,13 @@ function checkResponses() {
 function botClaimOrNext() {
   const { from, tile } = game.last;
   for (let distance = 1; distance < 4; distance += 1) {
-    const player = (from + distance) % 4;
+    const player = (from - distance + 4) % 4;
     if (player === 0) continue;
     const claims = claimsFor(player, tile);
     if (claims.gang) { claim(player, "杠"); return; }
     if (claims.peng && Math.random() < 0.6) { claim(player, "碰"); return; }
   }
-  game.turn = (from + 1) % 4; game.phase = "turn"; render(); timer = setTimeout(beginTurn, 450);
+  game.turn = nextPlayer(from); game.phase = "turn"; render(); timer = setTimeout(beginTurn, 450);
 }
 
 function takeLastDiscard() { return game.river.pop().tile; }

@@ -183,7 +183,7 @@ function playDealAnimation(dealer) {
   const width = felt.clientWidth; const height = felt.clientHeight;
   const destinations = [{ x: 0, y: height * .36, r: 0 }, { x: -width * .39, y: 0, r: 90 }, { x: 0, y: -height * .35, r: 180 }, { x: width * .39, y: 0, r: -90 }];
   for (let index = 0; index < 52; index += 1) {
-    const destination = destinations[(dealer + index) % 4]; const card = document.createElement("i"); card.className = "deal-card";
+    const destination = destinations[(dealer - index + 52) % 4]; const card = document.createElement("i"); card.className = "deal-card";
     card.style.setProperty("--deal-x", `${destination.x}px`); card.style.setProperty("--deal-y", `${destination.y}px`); card.style.setProperty("--deal-r", `${destination.r}deg`); card.style.setProperty("--deal-delay", `${index * 38}ms`); layer.append(card);
   }
   setTimeout(() => { layer.classList.add("finishing"); setTimeout(() => layer.remove(), 260); }, 2360);

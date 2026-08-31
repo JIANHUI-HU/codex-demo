@@ -42,6 +42,7 @@ test("四位玩家可创建、加入并同步发牌", { timeout: 12_000 }, async
     assert.equal(state.game.hand.length, state.game.turn === 0 ? 14 : 13);
     assert.equal(state.players.length, 4);
     assert.deepEqual(state.match.scores, [0, 0, 0, 0]);
+    assert.equal(state.players[state.game.turn].seatWind, 0);
   });
   const activeClient = dealtStates.findIndex((state) => state.game.turn === 0);
   const discardedId = dealtStates[activeClient].game.hand[0].id;
@@ -53,6 +54,7 @@ test("四位玩家可创建、加入并同步发牌", { timeout: 12_000 }, async
   });
   const nextTurnStates = await Promise.all([0, 1, 2, 3].map((index) => waitFor(index, (message) => message.type === "state" && message.game?.phase === "discard" && message.game.river.length === 1 && message.game.wallCount === 82)));
   assert.equal(nextTurnStates.filter((state) => state.game.turn === 0).length, 1);
+  nextTurnStates.forEach((state) => assert.equal(state.players[state.game.turn].seatWind, 1));
   clients.forEach((client) => client.close());
   await new Promise((resolve) => wss.close(() => server.close(resolve)));
 });

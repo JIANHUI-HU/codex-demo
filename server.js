@@ -48,6 +48,7 @@ function send(socket, message) { if (socket?.readyState === WebSocket.OPEN) sock
 function sendError(socket, message) { send(socket, { type: "error", message }); }
 function relativeSeat(actualSeat, viewerSeat) { return (actualSeat - viewerSeat + 4) % 4; }
 function actualSeat(relative, viewerSeat) { return (relative + viewerSeat) % 4; }
+function nextSeat(seat) { return (seat + 3) % 4; }
 
 function createRoom(ownerSocket, payload) {
   const code = makeCode();
@@ -327,7 +328,7 @@ function respondClaim(room, seat, action) {
   if (Object.keys(game.claimResponses).length === Object.keys(game.claimOptions).length) resolveClaims(room); else broadcastRoom(room);
   return true;
 }
-function nearestSeat(seats, from) { return seats.sort((a, b) => (a - from + 4) % 4 - (b - from + 4) % 4)[0]; }
+function nearestSeat(seats, from) { return seats.sort((a, b) => (from - a + 4) % 4 - (from - b + 4) % 4)[0]; }
 function resolveClaims(room) {
   const game = room.game;
   if (!game || game.phase !== "claim") return;
@@ -341,7 +342,7 @@ function resolveClaims(room) {
   moveAfterDiscard(room);
 }
 function moveAfterDiscard(room) {
-  const game = room.game; game.turn = (game.last.from + 1) % 4; game.phase = "drawing"; game.claimOptions = null; game.claimResponses = {}; broadcastRoom(room); later(room, () => beginTurn(room), 350);
+  const game = room.game; game.turn = nextSeat(game.last.from); game.phase = "drawing"; game.claimOptions = null; game.claimResponses = {}; broadcastRoom(room); later(room, () => beginTurn(room), 350);
 }
 function removeMatching(hand, code, amount) {
   const removed = [];
