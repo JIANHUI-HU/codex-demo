@@ -1,0 +1,44 @@
+# 六合牌局 · 平断缺
+
+包含两种运行方式：
+
+- `index.html`：单机练习，三位电脑玩家。
+- `online.html`：四人实时在线房间，洗牌、发牌和操作校验均由服务端完成。
+
+## 启动在线对局
+
+需要 Node.js 20 或更高版本。
+
+```bash
+npm install
+npm start
+```
+
+启动后打开 `http://localhost:3000/online.html`。同一局域网的牌友可以通过本机局域网 IP 加端口访问，例如 `http://192.168.1.20:3000/online.html`。
+
+联机流程：
+
+1. 一人填写昵称、选择单局或四/八/十二圈，然后创建房间。
+2. 把六位房间号或邀请地址发给另外三人。
+3. 四人到齐后，由房主点击“开始牌局”。
+4. 掉线后原浏览器会使用本地凭证自动重连；房间无人在线30分钟后自动释放。
+
+## 公网部署
+
+仓库包含 `render.yaml`，可在 Render 中选择 **New Blueprint Instance** 并关联该仓库。部署完成后，使用 Render 提供的 HTTPS 地址即可从公网创建房间。WebSocket 会自动使用同域的 `wss://` 连接。
+
+也可以用 Cloudflare Quick Tunnel 做临时异地测试：
+
+```bash
+cloudflared tunnel --url http://localhost:3000 --no-autoupdate
+```
+
+它会生成随机的 `https://*.trycloudflare.com` 地址。Quick Tunnel 只适合测试，电脑、Node 服务和隧道进程必须持续运行；停止任一进程后链接都会失效。
+
+## 测试
+
+```bash
+npm test
+```
+
+测试覆盖牌墙、主要番型及四客户端创建房间、加入和同步发牌流程。

@@ -3,6 +3,7 @@
 const suits = ["万", "筒", "条"];
 const honors = ["东", "南", "西", "北", "中", "发", "白"];
 const names = ["你", "小六", "阿北", "老庄"];
+const windNames = ["东", "南", "西", "北"];
 const chineseNumbers = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
 const $ = (selector) => document.querySelector(selector);
 const handElement = $("#hand");
@@ -13,6 +14,7 @@ const gangButton = $("#gang-btn");
 const claimBox = $("#claim-controls");
 let game;
 let timer;
+let match;
 
 function makeWall() {
   const wall = [];
@@ -34,15 +36,52 @@ function makeWall() {
 const tileCode = (tile) => tile.suitIndex === 3 ? 27 + tile.number : tile.suitIndex * 9 + tile.number - 1;
 const sortHand = (player) => game.hands[player].sort((a, b) => tileCode(a) - tileCode(b));
 
+function shuffledSeatWinds() {
+  const dealer = Math.floor(Math.random() * 4);
+  // 仅随机东家所在座位；门风必须依桌面座次连续排列，不能把四种风完全打乱。
+  // 玩家索引按下、左、上、右排列。例如右家为东时，依次应为：右东、上南、左西、下北。
+  return [0, 1, 2, 3].map((player) => (dealer - player + 4) % 4);
+}
+
+function startMatch(circles = 0) {
+  match = {
+    circles,
+    totalHands: circles ? circles * 4 : 1,
+    handIndex: 0,
+    seatWinds: shuffledSeatWinds(),
+    wins: [0, 0, 0, 0],
+  };
+  document.querySelectorAll(".mode-buttons button").forEach((button) => button.classList.toggle("active", Number(button.dataset.circles) === circles));
+  startGame();
+}
+
+function currentCircleIndex() { return match.circles ? Math.floor(match.handIndex / 4) : 0; }
+
+function updateMatchDisplay() {
+  const circleIndex = currentCircleIndex();
+  const circleWind = windNames[circleIndex % 4];
+  const handInCircle = match.circles ? match.handIndex % 4 + 1 : 1;
+  $("#round-label").textContent = `${circleWind}风圈 · 第${handInCircle}局`;
+  $("#match-progress").textContent = match.circles
+    ? `第 ${circleIndex + 1} / ${match.circles} 圈 · 本圈第 ${handInCircle} / 4 局 · ${circleWind}风圈`
+    : `单局 · ${circleWind}风圈 · 门风随机`;
+  match.seatWinds.forEach((wind, player) => {
+    if (player === 0) $("#self-wind").textContent = `${windNames[wind]}家`;
+    else $(`#wind-${player}`).textContent = windNames[wind];
+  });
+}
+
 function startGame() {
   clearTimeout(timer);
   document.querySelector(".deal-layer")?.remove();
   const wall = makeWall();
   const hands = [[], [], [], []];
   for (let round = 0; round < 13; round += 1) for (let player = 0; player < 4; player += 1) hands[player].push(wall.pop());
-  game = { wall, hands, melds: [[], [], [], []], river: [], turn: 0, phase: "dealing", selected: null, last: null, over: false, drawnId: null, dealing: true };
+  const dealer = match.seatWinds.indexOf(0);
+  game = { wall, hands, melds: [[], [], [], []], river: [], turn: dealer, dealer, phase: "dealing", selected: null, last: null, over: false, drawnId: null, dealing: true };
   hands.forEach((_, player) => sortHand(player));
   try { $("#result-dialog").close(); } catch {}
+  updateMatchDisplay();
   render();
   playDealAnimation();
 }
@@ -63,7 +102,7 @@ function playDealAnimation() {
     { x: width * 0.39, y: 0, rotation: -90 },
   ];
   for (let index = 0; index < 52; index += 1) {
-    const player = index % 4;
+    const player = (game.dealer + index) % 4;
     const destination = destinations[player];
     const card = document.createElement("i");
     card.className = "deal-card";
@@ -232,7 +271,7 @@ function render() {
 }
 
 function drawTile(player) {
-  if (!game.wall.length) { game.over = true; showToast("流局：牌墙已摸完"); render(); return false; }
+  if (!game.wall.length) { finishDraw(); return false; }
   const drawn = game.wall.pop(); game.hands[player].push(drawn); game.drawnId = player === 0 ? drawn.id : null; return true;
 }
 
@@ -310,10 +349,21 @@ function concealedGang() {
 }
 
 const fanValue = { "平胡": 1, "断幺": 1, "缺一门": 1, "对对胡": 1, "混一色": 1, "清一色": 4 };
+function isLastMatchHand() { return match.handIndex + 1 >= match.totalHands; }
+function configureResultAction() {
+  const button = $("#play-again");
+  if (!match.circles) button.textContent = "再来一局";
+  else if (isLastMatchHand()) button.textContent = `再开${match.circles}圈`;
+  else button.textContent = "下一局";
+}
+
 function finishGame(player, extraTile) {
+  if (game.over) return;
   game.over = true;
+  match.wins[player] += 1;
   const patterns = patternsFor(player, extraTile);
-  $("#result-eyebrow").textContent = extraTile ? (player ? `${names[player]} 接炮` : "你接炮和牌") : (player ? `${names[player]} 自摸` : "恭喜自摸");
+  const outcome = extraTile ? (player ? `${names[player]} 接炮` : "你接炮和牌") : (player ? `${names[player]} 自摸` : "恭喜自摸");
+  $("#result-eyebrow").textContent = `${outcome}${match.circles && isLastMatchHand() ? " · 赛程完成" : ""}`;
   $("#result-title").textContent = patterns.join(" · ") || "和牌";
   const resultHand = $("#result-hand"); resultHand.replaceChildren();
   const revealedHand = extraTile ? [...game.hands[player], extraTile] : [...game.hands[player]];
@@ -325,7 +375,27 @@ function finishGame(player, extraTile) {
     const label = document.createElement("span"); label.textContent = meld.type; group.append(label); resultMelds.append(group);
   });
   $("#result-patterns").innerHTML = patterns.map((pattern) => `<span>${pattern} +${fanValue[pattern] || 1}番</span>`).join("");
+  configureResultAction();
   render(); timer = setTimeout(() => $("#result-dialog").showModal(), 200);
+}
+
+function finishDraw() {
+  if (game.over) return;
+  game.over = true;
+  $("#result-eyebrow").textContent = match.circles && isLastMatchHand() ? "牌墙摸尽 · 赛程完成" : "牌墙摸尽";
+  $("#result-title").textContent = "流局";
+  $("#result-hand").replaceChildren();
+  $("#result-melds").replaceChildren();
+  $("#result-patterns").innerHTML = "<span>本局无人和牌</span>";
+  configureResultAction();
+  render(); timer = setTimeout(() => $("#result-dialog").showModal(), 200);
+}
+
+function advanceMatch() {
+  if (!match.circles || isLastMatchHand()) { startMatch(match.circles); return; }
+  match.handIndex += 1;
+  match.seatWinds = match.seatWinds.map((wind) => (wind + 3) % 4);
+  startGame();
 }
 function showToast(message) { const toast = $("#toast"); toast.textContent = message; toast.classList.add("show"); setTimeout(() => toast.classList.remove("show"), 1500); }
 
@@ -338,8 +408,9 @@ $("#dian-hu-btn").onclick = () => finishGame(0, game.last.tile);
 $("#pass-btn").onclick = passClaim;
 $("#sort-btn").onclick = () => { sortHand(0); game.drawnId = null; render(); showToast("已整理手牌"); };
 $("#restart-btn").onclick = startGame;
-$("#play-again").onclick = startGame;
+$("#play-again").onclick = advanceMatch;
+document.querySelectorAll(".mode-buttons button").forEach((button) => { button.onclick = () => startMatch(Number(button.dataset.circles)); });
 const rulesDialog = $("#rules-dialog");
 $("#rules-btn").onclick = () => rulesDialog.showModal();
 $("#close-rules").onclick = () => rulesDialog.close();
-startGame();
+startMatch(0);

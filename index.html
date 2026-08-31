@@ -1,16 +1,17 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="theme-color" content="#073f35"><title>六合牌局 · 平断缺</title><link rel="stylesheet" href="style.css"></head><body>
-<main class="app"><header><div><small>南京 · 六合</small><h1>六合牌局 <em>平断缺</em></h1></div><nav><button id="rules-btn">规则</button><button id="restart-btn">重开</button></nav></header>
+<main class="app"><header><div><small>南京 · 六合</small><h1>六合牌局 <em>平断缺</em></h1></div><nav><a class="online-link" href="online.html">联机对局</a><button id="rules-btn">规则</button><button id="restart-btn">重开本局</button></nav></header>
+<section class="match-toolbar" aria-label="选择赛制"><div class="mode-buttons"><button class="active" data-circles="0">单局</button><button data-circles="4">四圈</button><button data-circles="8">八圈</button><button data-circles="12">十二圈</button></div><p id="match-progress">单局 · 东风圈</p></section>
 <section class="game"><div class="felt">
-  <div class="player top" id="player-2"><b>北</b><p>阿北 <span>13 张</span><em></em></p><i></i><div class="opponent-melds" id="melds-2"></div></div>
-  <div class="player left" id="player-1"><b>西</b><p>小六 <span>13 张</span><em></em></p><div class="opponent-melds" id="melds-1"></div></div>
-  <div class="player right" id="player-3"><b>东</b><p>老庄 <span>13 张</span><em></em></p><div class="opponent-melds" id="melds-3"></div></div>
-  <div class="center"><div><small>东风局</small><strong id="wall-count">83</strong><small>张余牌</small></div><p id="turn-label">轮到你摸牌</p></div>
+  <div class="player top" id="player-2"><b id="wind-2">北</b><p>阿北 <span>13 张</span><em></em></p><i></i><div class="opponent-melds" id="melds-2"></div></div>
+  <div class="player left" id="player-1"><b id="wind-1">西</b><p>小六 <span>13 张</span><em></em></p><div class="opponent-melds" id="melds-1"></div></div>
+  <div class="player right" id="player-3"><b id="wind-3">东</b><p>老庄 <span>13 张</span><em></em></p><div class="opponent-melds" id="melds-3"></div></div>
+  <div class="center"><div><small id="round-label">东风圈 · 第1局</small><strong id="wall-count">83</strong><small>张余牌</small></div><p id="turn-label">轮到你摸牌</p></div>
   <div class="river river-0" id="river-0" aria-label="你的牌河"></div>
   <div class="river river-1" id="river-1" aria-label="西家牌河"></div>
   <div class="river river-2" id="river-2" aria-label="北家牌河"></div>
   <div class="river river-3" id="river-3" aria-label="东家牌河"></div>
 </div>
-<section class="hand-zone"><div class="hand-head"><span>你的手牌 · 南家 <small id="hand-status">13 张</small></span><button id="sort-btn">理牌</button></div><div id="my-melds" class="melds"></div><div id="hand" class="hand"></div><div class="controls main-controls"><button id="draw-btn" disabled>自动摸牌</button><button id="discard-btn" class="primary" disabled>打出</button><button id="gang-btn" class="gold" disabled>暗杠</button><button id="hu-btn" class="gold" disabled>自摸</button></div><div id="claim-controls" class="controls claims" hidden><button id="peng-btn">碰</button><button id="ming-gang-btn">杠</button><button id="dian-hu-btn" class="gold">胡</button><button id="pass-btn">过</button></div></section></section></main>
+<section class="hand-zone"><div class="hand-head"><span>你的手牌 · <b id="self-wind">南家</b> <small id="hand-status">13 张</small></span><button id="sort-btn">理牌</button></div><div id="my-melds" class="melds"></div><div id="hand" class="hand"></div><div class="controls main-controls"><button id="draw-btn" disabled>自动摸牌</button><button id="discard-btn" class="primary" disabled>打出</button><button id="gang-btn" class="gold" disabled>暗杠</button><button id="hu-btn" class="gold" disabled>自摸</button></div><div id="claim-controls" class="controls claims" hidden><button id="peng-btn">碰</button><button id="ming-gang-btn">杠</button><button id="dian-hu-btn" class="gold">胡</button><button id="pass-btn">过</button></div></section></section></main>
 <dialog id="rules-dialog"><div class="dialog-head"><div><small>六合麻将</small><h2>平断缺规则</h2></div><button id="close-rules">×</button></div><div class="rules">
 <article><b>平</b><div><h3>平胡</h3><p>四副顺子加一对将，不含风牌、大将和刻子。本练习版暂不限制听口。</p></div></article>
 <article><b>断</b><div><h3>断幺</h3><p>和牌中没有一、九，也没有东南西北中发白。</p></div></article>

@@ -1,0 +1,17 @@
+{
+  "name": "liuhe-mahjong",
+  "version": "1.0.0",
+  "private": true,
+  "description": "六合平断缺麻将：单机练习与四人在线房间",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}
