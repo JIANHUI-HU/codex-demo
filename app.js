@@ -37,19 +37,22 @@ const tileCode = (tile) => tile.suitIndex === 3 ? 27 + tile.number : tile.suitIn
 const sortHand = (player) => game.hands[player].sort((a, b) => tileCode(a) - tileCode(b));
 const nextPlayer = (player) => (player + 3) % 4;
 
-function shuffledSeatWinds() {
-  const dealer = Math.floor(Math.random() * 4);
+function shuffledSeatWinds(previousDealer = -1) {
+  let dealer;
+  do dealer = Math.floor(Math.random() * 4);
+  while (dealer === previousDealer);
   // 仅随机东家所在座位；门风必须依桌面座次连续排列，不能把四种风完全打乱。
   // 玩家索引按下、左、上、右排列。例如右家为东时，依次应为：右东、上南、左西、下北。
   return [0, 1, 2, 3].map((player) => (dealer - player + 4) % 4);
 }
 
 function startMatch(circles = 0) {
+  const previousDealer = match?.seatWinds?.indexOf(0) ?? -1;
   match = {
     circles,
     totalHands: circles ? circles * 4 : 1,
     handIndex: 0,
-    seatWinds: shuffledSeatWinds(),
+    seatWinds: shuffledSeatWinds(previousDealer),
     wins: [0, 0, 0, 0],
   };
   document.querySelectorAll(".mode-buttons button").forEach((button) => button.classList.toggle("active", Number(button.dataset.circles) === circles));

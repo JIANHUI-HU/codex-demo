@@ -44,6 +44,7 @@ test("房主可添加电脑并由电脑自动出牌", { timeout: 15_000 }, async
   socket.send(JSON.stringify({ type: "action", action: "start" }));
   await waitFor((message) => message.type === "state" && message.game?.phase === "dealing");
   const room = rooms.get(session.roomCode);
+  const firstDealer = room.match.seatWinds.indexOf(0);
   room.game.turn = 1;
   room.game.dealer = 1;
 
@@ -52,6 +53,13 @@ test("房主可添加电脑并由电脑自动出牌", { timeout: 15_000 }, async
     || (message.game?.phase === "finished" && message.game.result?.winner === 1)
   ));
   assert.ok(acted.game.river.some((discard) => discard.player === 1) || acted.game.result?.winner === 1);
+
+  room.timers.forEach(clearTimeout);
+  room.timers.clear();
+  room.game.phase = "finished";
+  socket.send(JSON.stringify({ type: "action", action: "next" }));
+  await waitFor((message) => message.type === "state" && message.game?.phase === "dealing" && message.game.dealer !== firstDealer);
+  assert.notEqual(room.match.seatWinds.indexOf(0), firstDealer);
 
   room.timers.forEach(clearTimeout);
   room.timers.clear();

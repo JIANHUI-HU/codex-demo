@@ -215,8 +215,10 @@ function broadcastRoom(room) {
   room.players.forEach((player, seat) => { if (player?.connected) send(player.socket, roomSnapshot(room, seat)); });
 }
 
-function randomSeatWinds() {
-  const dealer = crypto.randomInt(4);
+function randomSeatWinds(previousDealer = -1) {
+  let dealer;
+  do dealer = crypto.randomInt(4);
+  while (dealer === previousDealer);
   return [0, 1, 2, 3].map((seat) => (dealer - seat + 4) % 4);
 }
 function currentCircleWind(room) {
@@ -234,7 +236,8 @@ function applyScore(room, settlement, event) {
 }
 function startMatch(room) {
   if (room.players.some((player) => !player || (!player.bot && !player.connected))) return false;
-  room.match = { handIndex: 0, totalHands: room.circles ? room.circles * 4 : 1, seatWinds: randomSeatWinds(), wins: [0, 0, 0, 0], scores: [0, 0, 0, 0] };
+  const previousDealer = room.match?.seatWinds?.indexOf(0) ?? -1;
+  room.match = { handIndex: 0, totalHands: room.circles ? room.circles * 4 : 1, seatWinds: randomSeatWinds(previousDealer), wins: [0, 0, 0, 0], scores: [0, 0, 0, 0] };
   startHand(room); return true;
 }
 function startHand(room) {
