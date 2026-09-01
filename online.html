@@ -11,7 +11,7 @@
 </head>
 <body>
 <main class="app online-app">
-  <header><div><small>四人实时房间</small><h1>六合牌局 <em>在线对局</em></h1></div><nav><span id="connection-state" class="connection-state">连接中</span><button class="account-trigger" type="button">登录 / 注册</button><a class="online-link secondary" href="index.html">单机模式</a></nav></header>
+  <header><div><small>四人实时房间</small><h1>六合牌局 <em>在线对局</em></h1></div><nav><span id="connection-state" class="connection-state">连接中</span><button class="bgm-toggle" type="button" aria-pressed="false"><span aria-hidden="true">♫</span><em>音乐关</em></button><button class="account-trigger" type="button">登录 / 注册</button><a class="online-link secondary" href="index.html">单机模式</a></nav></header>
 
   <section id="lobby" class="lobby-card">
     <div id="lobby-entry">
@@ -49,6 +49,7 @@
 
 <dialog id="online-result-dialog" class="result"><div class="seal">和</div><p id="online-result-eyebrow">本局结束</p><h2 id="online-result-title">和牌</h2><div id="online-result-hand" class="result-hand"></div><div id="online-result-melds" class="result-melds"></div><div id="online-result-patterns"></div><p id="online-result-formula" class="result-formula"></p><div id="online-result-settlement" class="result-settlement"></div><div id="online-result-scores" class="result-scores"></div><button id="online-next-btn" class="primary">下一局</button></dialog>
 <div id="online-toast" class="toast"></div>
+<script src="bgm.js"></script>
 <script src="account.js"></script>
 <script src="online.js"></script>
 </body>
