@@ -10,8 +10,17 @@ test("四位玩家可创建、加入并同步发牌", { timeout: 12_000 }, async
   const { server, wss } = require("../server");
   if (!server.listening) await once(server, "listening");
   const port = server.address().port;
-  const clients = await Promise.all(Array.from({ length: 4 }, () => new Promise((resolve, reject) => {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+  const cookies = await Promise.all(Array.from({ length: 4 }, async (_, index) => {
+    const response = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: `player${index}@example.com`, password: "mahjong88", nickname: index ? `牌友${index}` : "房主" }),
+    });
+    assert.equal(response.status, 201);
+    return response.headers.get("set-cookie").split(";")[0];
+  }));
+  const clients = await Promise.all(cookies.map((cookie) => new Promise((resolve, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { Cookie: cookie } });
     socket.once("open", () => resolve(socket)); socket.once("error", reject);
   })));
   const queues = clients.map(() => []);

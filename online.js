@@ -4,7 +4,6 @@ const $ = (selector) => document.querySelector(selector);
 const windNames = ["东", "南", "西", "北"];
 const chineseNumbers = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
 const storageKey = "liuhe-online-session";
-const nameKey = "liuhe-online-name";
 const handElement = $("#online-hand");
 const riverElements = [0, 1, 2, 3].map((seat) => $(`#online-river-${seat}`));
 let socket;
@@ -15,6 +14,7 @@ let selectedBaseScore = 1;
 let reconnectTimer;
 let lastPhase = null;
 let shownResultKey = null;
+let authUser = window.liuheAccount?.user || null;
 
 function websocketUrl() {
   const configured = new URLSearchParams(location.search).get("server");
@@ -44,6 +44,7 @@ function connect() {
   socket.onmessage = (event) => {
     let message;
     try { message = JSON.parse(event.data); } catch { return; }
+    if (message.type === "connected") { applyAuthUser(message.user); return; }
     if (message.type === "session") {
       localStorage.setItem(storageKey, JSON.stringify({ roomCode: message.roomCode, token: message.token }));
       return;
@@ -74,6 +75,16 @@ function applyState(nextState) {
 
 function showLobbyEntry() {
   $("#lobby").hidden = false; $("#lobby-entry").hidden = false; $("#waiting-room").hidden = true; $("#online-table").hidden = true;
+  renderAuthState();
+}
+function applyAuthUser(nextUser) { authUser = nextUser || null; renderAuthState(); }
+function renderAuthState() {
+  const nickname = $("#nickname");
+  const hint = $("#auth-required-hint");
+  if (!nickname || !hint) return;
+  nickname.value = authUser?.nickname || "";
+  hint.textContent = authUser ? `已登录：${authUser.email}` : "请先使用邮箱登录或注册，才能创建、加入在线房间。";
+  hint.classList.toggle("signed-in", Boolean(authUser));
 }
 function renderWaitingRoom() {
   $("#lobby").hidden = false; $("#lobby-entry").hidden = true; $("#waiting-room").hidden = false; $("#online-table").hidden = true;
@@ -224,12 +235,11 @@ function showResult(state) {
 function escapeHtml(text) { const div = document.createElement("div"); div.textContent = text; return div.innerHTML; }
 function showToast(message) { const toast = $("#online-toast"); toast.textContent = message; toast.classList.add("show"); setTimeout(() => toast.classList.remove("show"), 1800); }
 
-$("#nickname").value = localStorage.getItem(nameKey) || "";
 const queryRoom = new URLSearchParams(location.search).get("room"); if (queryRoom) $("#room-code-input").value = queryRoom.toUpperCase();
 document.querySelectorAll(".online-mode-buttons button").forEach((button) => { button.onclick = () => { selectedCircles = Number(button.dataset.circles); document.querySelectorAll(".online-mode-buttons button").forEach((item) => item.classList.toggle("active", item === button)); }; });
 document.querySelectorAll(".online-base-buttons button").forEach((button) => { button.onclick = () => { selectedBaseScore = Number(button.dataset.base); document.querySelectorAll(".online-base-buttons button").forEach((item) => item.classList.toggle("active", item === button)); }; });
-$("#create-room").onclick = () => { const name = $("#nickname").value.trim(); if (!name) return showToast("请先输入称呼"); localStorage.setItem(nameKey, name); localStorage.removeItem(storageKey); send({ type: "create", name, circles: selectedCircles, baseScore: selectedBaseScore }); };
-$("#join-room").onclick = () => { const name = $("#nickname").value.trim(), roomCode = $("#room-code-input").value.trim().toUpperCase(); if (!name || roomCode.length !== 6) return showToast("请输入称呼和六位房间号"); localStorage.setItem(nameKey, name); localStorage.removeItem(storageKey); send({ type: "join", name, roomCode }); };
+$("#create-room").onclick = () => { if (!authUser) { window.liuheAccount?.open("login"); return showToast("请先登录或注册"); } localStorage.removeItem(storageKey); send({ type: "create", circles: selectedCircles, baseScore: selectedBaseScore }); };
+$("#join-room").onclick = () => { const roomCode = $("#room-code-input").value.trim().toUpperCase(); if (!authUser) { window.liuheAccount?.open("login"); return showToast("请先登录或注册"); } if (roomCode.length !== 6) return showToast("请输入六位房间号"); localStorage.removeItem(storageKey); send({ type: "join", roomCode }); };
 $("#copy-room-code").onclick = async () => { const invite = `${location.origin}${location.pathname}?room=${roomState.roomCode}`; try { await navigator.clipboard.writeText(location.protocol === "file:" ? roomState.roomCode : invite); showToast("邀请信息已复制"); } catch { showToast(`房间号：${roomState.roomCode}`); } };
 $("#add-bot").onclick = () => send({ type: "action", action: "addBot" });
 $("#remove-bot").onclick = () => send({ type: "action", action: "removeBot" });
@@ -243,6 +253,14 @@ $("#online-dian-hu-btn").onclick = () => send({ type: "action", action: "dianHu"
 $("#online-pass-btn").onclick = () => send({ type: "action", action: "pass" });
 $("#online-sort-btn").onclick = () => { roomState?.game?.hand.sort((a, b) => tileCode(a) - tileCode(b)); if (roomState) { roomState.game.drawnId = null; renderOnlineGame(); } };
 $("#online-next-btn").onclick = () => send({ type: "action", action: "next" });
+
+window.addEventListener("liuhe-auth-change", (event) => {
+  const previousId = authUser?.id || null;
+  applyAuthUser(event.detail.user);
+  if (previousId === (authUser?.id || null)) return;
+  localStorage.removeItem(storageKey); roomState = null; showLobbyEntry();
+  if (socket && socket.readyState < WebSocket.CLOSING) socket.close(4000, "账号状态已更新");
+});
 
 showLobbyEntry();
 connect();

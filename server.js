@@ -4,8 +4,10 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { promisify } = require("node:util");
 const { WebSocketServer, WebSocket } = require("ws");
 const { makeWall, tileCode, sortTiles, countsOf, patternsFor, fanTotal, winSettlement, gangSettlement } = require("./game-rules");
+const authStore = require("./auth-store");
 
 const requestedPort = Number(process.env.PORT);
 const PORT = Number.isInteger(requestedPort) && requestedPort >= 0 ? requestedPort : 3000;
@@ -14,14 +16,22 @@ const ROOT = __dirname;
 const rooms = new Map();
 const windNames = ["东", "南", "西", "北"];
 const mimeTypes = { ".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml" };
+const scrypt = promisify(crypto.scrypt);
+const sessionCookieName = "liuhe_session";
+const sessionLifetimeMs = 30 * 24 * 60 * 60 * 1000;
+const authAttempts = new Map();
 
-const server = http.createServer((request, response) => {
+const server = http.createServer((request, response) => { handleHttpRequest(request, response); });
+
+async function handleHttpRequest(request, response) {
+  try {
   if (request.url === "/health") {
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ ok: true, rooms: rooms.size }));
+      response.end(JSON.stringify({ ok: true, rooms: rooms.size, accounts: authStore.persistent ? "postgres" : "memory" }));
     return;
   }
   const requestPath = decodeURIComponent((request.url || "/").split("?")[0]);
+    if (requestPath.startsWith("/api/auth/")) { await handleAuthRequest(request, response, requestPath); return; }
   const relativePath = requestPath === "/" ? "index.html" : requestPath.replace(/^\/+/, "");
   const filePath = path.resolve(ROOT, relativePath);
   if (!filePath.startsWith(ROOT) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
@@ -29,7 +39,113 @@ const server = http.createServer((request, response) => {
   }
   response.writeHead(200, { "content-type": mimeTypes[path.extname(filePath)] || "application/octet-stream", "cache-control": "no-cache" });
   fs.createReadStream(filePath).pipe(response);
-});
+  } catch (error) {
+    console.error("请求处理失败：", error.message);
+    if (!response.headersSent) sendJson(response, 500, { error: "服务器暂时无法处理请求" });
+    else response.end();
+  }
+}
+
+function sendJson(response, status, body, headers = {}) {
+  response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers });
+  response.end(JSON.stringify(body));
+}
+
+function readJson(request) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 16_384) reject(Object.assign(new Error("请求内容过大"), { status: 413 }));
+    });
+    request.on("end", () => {
+      if (body.length > 16_384) return;
+      try { resolve(body ? JSON.parse(body) : {}); }
+      catch { reject(Object.assign(new Error("请求格式错误"), { status: 400 })); }
+    });
+    request.on("error", reject);
+  });
+}
+
+function normalizeEmail(value) {
+  const email = String(value || "").trim().toLowerCase();
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+function publicUser(user) { return user ? { id: String(user.id), email: user.email, nickname: user.nickname } : null; }
+function passwordValid(password) { return typeof password === "string" && password.length >= 8 && password.length <= 72; }
+function tokenHash(token) { return crypto.createHash("sha256").update(token).digest("hex"); }
+function parseCookies(request) {
+  return Object.fromEntries(String(request.headers.cookie || "").split(";").map((part) => part.trim()).filter(Boolean).map((part) => {
+    const separator = part.indexOf("=");
+    return separator < 0 ? [part, ""] : [part.slice(0, separator), decodeURIComponent(part.slice(separator + 1))];
+  }));
+}
+function sessionCookie(request, value, maxAge) {
+  const forwardedProtocol = String(request.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const secure = forwardedProtocol === "https" || request.socket.encrypted;
+  return `${sessionCookieName}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? "; Secure" : ""}`;
+}
+function allowAuthAttempt(request) {
+  const ip = String(request.headers["x-forwarded-for"] || request.socket.remoteAddress || "unknown").split(",")[0].trim();
+  const now = Date.now();
+  const recent = (authAttempts.get(ip) || []).filter((time) => now - time < 15 * 60 * 1000);
+  if (recent.length >= 12) { authAttempts.set(ip, recent); return false; }
+  recent.push(now); authAttempts.set(ip, recent); return true;
+}
+async function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const derived = await scrypt(password, salt, 64, { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+  return `scrypt$16384$8$1$${salt.toString("base64url")}$${derived.toString("base64url")}`;
+}
+async function verifyPassword(password, stored) {
+  const [algorithm, cost, blockSize, parallelization, saltText, hashText] = String(stored || "").split("$");
+  if (algorithm !== "scrypt" || !saltText || !hashText) return false;
+  const expected = Buffer.from(hashText, "base64url");
+  const actual = await scrypt(password, Buffer.from(saltText, "base64url"), expected.length, { N: Number(cost), r: Number(blockSize), p: Number(parallelization), maxmem: 64 * 1024 * 1024 });
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+async function createUserSession(request, user) {
+  const token = crypto.randomBytes(32).toString("base64url");
+  await authStore.createSession({ tokenHash: tokenHash(token), userId: user.id, expiresAt: new Date(Date.now() + sessionLifetimeMs) });
+  return sessionCookie(request, token, Math.floor(sessionLifetimeMs / 1000));
+}
+async function authenticatedUser(request) {
+  const token = parseCookies(request)[sessionCookieName];
+  if (!token) return null;
+  return authStore.findUserBySession(tokenHash(token));
+}
+async function handleAuthRequest(request, response, requestPath) {
+  if (process.env.RENDER && !authStore.persistent) return sendJson(response, 503, { error: "账号数据库尚未配置，请先在 Render 同步 Blueprint" });
+  await authStore.ready;
+  if (requestPath === "/api/auth/me" && request.method === "GET") {
+    return sendJson(response, 200, { user: publicUser(await authenticatedUser(request)) });
+  }
+  if (requestPath === "/api/auth/logout" && request.method === "POST") {
+    const token = parseCookies(request)[sessionCookieName];
+    if (token) await authStore.deleteSession(tokenHash(token));
+    return sendJson(response, 200, { ok: true }, { "set-cookie": sessionCookie(request, "", 0) });
+  }
+  if (!["/api/auth/register", "/api/auth/login"].includes(requestPath) || request.method !== "POST") return sendJson(response, 404, { error: "接口不存在" });
+  if (!allowAuthAttempt(request)) return sendJson(response, 429, { error: "尝试次数过多，请稍后再试" });
+  let payload;
+  try { payload = await readJson(request); }
+  catch (error) { return sendJson(response, error.status || 400, { error: error.message }); }
+  const email = normalizeEmail(payload.email);
+  const password = payload.password;
+  if (!email) return sendJson(response, 400, { error: "请输入有效的邮箱地址" });
+  if (!passwordValid(password)) return sendJson(response, 400, { error: "密码需为 8 至 72 个字符" });
+  if (requestPath === "/api/auth/register") {
+    const nickname = safeName(payload.nickname);
+    if (nickname === "牌友" && String(payload.nickname || "").trim() !== "牌友") return sendJson(response, 400, { error: "请输入 1 至 10 个字的昵称" });
+    const user = await authStore.createUser({ email, passwordHash: await hashPassword(password), nickname });
+    if (!user) return sendJson(response, 409, { error: "这个邮箱已经注册，请直接登录" });
+    return sendJson(response, 201, { user: publicUser(user) }, { "set-cookie": await createUserSession(request, user) });
+  }
+  const user = await authStore.findUserByEmail(email);
+  if (!user || !(await verifyPassword(password, user.passwordHash))) return sendJson(response, 401, { error: "邮箱或密码不正确" });
+  return sendJson(response, 200, { user: publicUser(user) }, { "set-cookie": await createUserSession(request, user) });
+}
 
 const wss = new WebSocketServer({ server, path: "/ws" });
 
@@ -61,7 +177,7 @@ function createRoom(ownerSocket, payload) {
     status: "waiting",
     circles,
     baseScore,
-    players: [{ name: safeName(payload.name), token, socket: ownerSocket, connected: true }, null, null, null],
+    players: [{ name: ownerSocket.authUser.nickname, userId: ownerSocket.authUser.id, token, socket: ownerSocket, connected: true }, null, null, null],
     match: null,
     game: null,
     timers: new Set(),
@@ -78,10 +194,11 @@ function joinRoom(socket, payload) {
   const room = rooms.get(code);
   if (!room) return sendError(socket, "房间不存在，请检查房间号");
   if (room.status !== "waiting") return sendError(socket, "牌局已经开始，只能使用原设备重连");
+  if (room.players.some((player) => !player?.bot && String(player?.userId) === String(socket.authUser.id))) return sendError(socket, "当前账号已经在这个房间里");
   const seat = room.players.findIndex((player) => !player);
   if (seat < 0) return sendError(socket, "房间已满");
   const token = makeToken();
-  room.players[seat] = { name: safeName(payload.name), token, socket, connected: true };
+  room.players[seat] = { name: socket.authUser.nickname, userId: socket.authUser.id, token, socket, connected: true };
   room.touchedAt = Date.now();
   attachSession(socket, room, seat);
   send(socket, { type: "session", roomCode: code, seat, token });
@@ -96,6 +213,7 @@ function reconnectRoom(socket, payload) {
   const seat = room.players.findIndex((player) => !player?.bot && player?.token === payload.token);
   if (seat < 0) return sendError(socket, "重连凭证无效");
   const player = room.players[seat];
+  if (String(player.userId) !== String(socket.authUser.id)) return sendError(socket, "该座位不属于当前账号");
   if (player.socket && player.socket !== socket) player.socket.close(4001, "在另一设备重连");
   player.socket = socket; player.connected = true; room.touchedAt = Date.now(); attachSession(socket, room, seat);
   send(socket, { type: "session", roomCode: code, seat, token: player.token, reconnected: true });
@@ -446,11 +564,20 @@ function handleAction(socket, payload) {
   }
 }
 
-wss.on("connection", (socket) => {
-  send(socket, { type: "connected" });
-  socket.on("message", (raw) => {
+wss.on("connection", (socket, request) => {
+  const authReady = authenticatedUser(request).then((user) => {
+    socket.authUser = publicUser(user);
+    send(socket, { type: "connected", user: socket.authUser });
+  }).catch((error) => {
+    console.error("联机账号校验失败：", error.message);
+    socket.authUser = null;
+    send(socket, { type: "connected", user: null });
+  });
+  socket.on("message", async (raw) => {
+    await authReady;
     let payload;
     try { payload = JSON.parse(raw.toString()); } catch { return sendError(socket, "消息格式错误"); }
+    if (["create", "join", "reconnect"].includes(payload.type) && !socket.authUser) return sendError(socket, "请先使用邮箱登录，再进入在线房间");
     if (payload.type === "create") createRoom(socket, payload);
     else if (payload.type === "join") joinRoom(socket, payload);
     else if (payload.type === "reconnect") reconnectRoom(socket, payload);

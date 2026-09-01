@@ -9,7 +9,15 @@ test("房主可添加电脑并由电脑自动出牌", { timeout: 15_000 }, async
   process.env.PORT = "0";
   const { server, wss, rooms } = require("../server");
   if (!server.listening) await once(server, "listening");
-  const socket = new WebSocket(`ws://127.0.0.1:${server.address().port}/ws`);
+  const port = server.address().port;
+  const registration = await fetch(`http://127.0.0.1:${port}/api/auth/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "owner@example.com", password: "mahjong88", nickname: "房主" }),
+  });
+  assert.equal(registration.status, 201);
+  const cookie = registration.headers.get("set-cookie").split(";")[0];
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { Cookie: cookie } });
   await once(socket, "open");
 
   const queue = [];

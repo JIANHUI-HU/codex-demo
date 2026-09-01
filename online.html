@@ -7,15 +7,17 @@
   <title>六合牌局 · 在线对局</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="online.css">
+  <link rel="stylesheet" href="account.css">
 </head>
 <body>
 <main class="app online-app">
-  <header><div><small>四人实时房间</small><h1>六合牌局 <em>在线对局</em></h1></div><nav><span id="connection-state" class="connection-state">连接中</span><a class="online-link secondary" href="index.html">单机模式</a></nav></header>
+  <header><div><small>四人实时房间</small><h1>六合牌局 <em>在线对局</em></h1></div><nav><span id="connection-state" class="connection-state">连接中</span><button class="account-trigger" type="button">登录 / 注册</button><a class="online-link secondary" href="index.html">单机模式</a></nav></header>
 
   <section id="lobby" class="lobby-card">
     <div id="lobby-entry">
       <div class="lobby-title"><span>ONLINE TABLE</span><h2>约上三位牌友</h2><p>创建房间后，把六位房间号发给朋友即可。</p></div>
-      <label>你的称呼<input id="nickname" maxlength="10" autocomplete="nickname" placeholder="输入昵称"></label>
+      <label>牌桌昵称<input id="nickname" maxlength="10" autocomplete="nickname" placeholder="登录后自动使用账号昵称" readonly></label>
+      <p id="auth-required-hint" class="auth-required-hint">请先使用邮箱登录或注册，才能创建、加入在线房间。</p>
       <div class="lobby-mode"><span>赛制</span><div class="online-mode-buttons"><button class="active" data-circles="0">单局</button><button data-circles="4">四圈</button><button data-circles="8">八圈</button><button data-circles="12">十二圈</button></div></div>
       <div class="lobby-mode base-score-picker"><span>底数（积分）</span><div class="online-base-buttons"><button class="active" data-base="1">1</button><button data-base="2">2</button><button data-base="5">5</button><button data-base="10">10</button><button data-base="20">20</button></div><p>一番一底，每多一番翻倍，四番封顶；点炮一人付，自摸三家各付。</p></div>
       <button id="create-room" class="lobby-primary">创建房间</button>
@@ -47,6 +49,7 @@
 
 <dialog id="online-result-dialog" class="result"><div class="seal">和</div><p id="online-result-eyebrow">本局结束</p><h2 id="online-result-title">和牌</h2><div id="online-result-hand" class="result-hand"></div><div id="online-result-melds" class="result-melds"></div><div id="online-result-patterns"></div><p id="online-result-formula" class="result-formula"></p><div id="online-result-settlement" class="result-settlement"></div><div id="online-result-scores" class="result-scores"></div><button id="online-next-btn" class="primary">下一局</button></dialog>
 <div id="online-toast" class="toast"></div>
+<script src="account.js"></script>
 <script src="online.js"></script>
 </body>
 </html>
